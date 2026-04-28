@@ -1,0 +1,8 @@
+typer
+langgraph
+litellm
+pydantic
+llama-index-core
+loguru
+python-dotenv
+pythainlp
