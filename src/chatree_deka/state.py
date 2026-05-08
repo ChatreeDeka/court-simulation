@@ -18,6 +18,7 @@ class TrialState(TypedDict):
 
     # Role assignment
     judge_mode:      Literal["manual", "ai"]
+    plaintiff_mode:  Literal["manual", "ai"]
     prosecutor_mode: Literal["manual", "ai"]
     defender_mode:   Literal["manual", "ai"]
 
@@ -34,4 +35,4 @@ class TrialState(TypedDict):
 
     # Control flow
     objection_pending: bool
-    current_speaker:   Literal["judge", "prosecutor", "defender"]
+    current_speaker:   Literal["judge", "plaintiff", "prosecutor", "defender"]

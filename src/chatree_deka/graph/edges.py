@@ -31,13 +31,19 @@ def phase_router_after_val(state: TrialState) -> str:
     phase = state.get("phase")
     speaker = state.get("current_speaker")
     
+    if phase == "opening_prosecution" and speaker == "plaintiff":
+        return "prosecutor_node"
     if phase == "opening_prosecution" and speaker == "prosecutor":
         return "defender_node"
     elif phase == "opening_defense" and speaker == "defender":
+        return "plaintiff_node"
+    elif phase == "direct_examination" and speaker == "plaintiff":
         return "prosecutor_node"
     elif phase == "direct_examination" and speaker == "prosecutor":
         return "defender_node"
     elif phase == "cross_examination" and speaker == "defender":
+        return "plaintiff_node"
+    elif phase == "closing_prosecution" and speaker == "plaintiff":
         return "prosecutor_node"
     elif phase == "closing_prosecution" and speaker == "prosecutor":
         return "defender_node"
@@ -56,7 +62,7 @@ def post_judge_router(state: TrialState) -> str:
         return "END"
         
     if phase in ["opening_prosecution", "direct_examination", "closing_prosecution"]:
-        return "prosecutor_node"
+        return "plaintiff_node"
     elif phase in ["opening_defense", "cross_examination", "closing_defense"]:
         return "defender_node"
         
