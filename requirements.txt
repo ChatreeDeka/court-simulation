@@ -6,3 +6,4 @@ llama-index-core
 loguru
 python-dotenv
 pythainlp
+pyarrow

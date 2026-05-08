@@ -1,12 +1,18 @@
 # config/config.yaml
 models:
-  prosecutor: "gemini/gemini-2.5-flash" #"groq/llama-3.1-8b-instant"
-  defender:   "gemini/gemini-2.5-flash" #"cerebras/llama-3.1-8b"
-  judge:      "gemini/gemini-2.5-flash"
+  # prosecutor: "gemini/gemini-2.5-flash" #"groq/llama-3.1-8b-instant"
+  # defender:   "gemini/gemini-2.5-flash" #"cerebras/llama-3.1-8b"
+  # judge:      "gemini/gemini-2.5-flash"
   # Target Hugging Face models for late POC:
   # prosecutor: "huggingface/meta-llama/Llama-3.2-3B-Instruct"
   # defender:   "huggingface/meta-llama/Llama-3.2-3B-Instruct"
   # judge:      "huggingface/deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+
+  models:
+  judge: "ollama/deepseek-r1:8b"
+  plaintiff: "ollama/llama3.2:3b"
+  defender: "ollama/llama3.2:3b"
+  prosecutor: "ollama/qwen2.5:7b"
 
 inference:
   max_tokens:    512
