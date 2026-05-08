@@ -17,7 +17,6 @@ def main():
 @app.command()
 def simulate(
     case_file: str = typer.Option(..., help="Path to case facts JSON"),
-    plaintiff: str = typer.Option("ai", help="[manual|ai]"),
     prosecutor: str = typer.Option("ai", help="[manual|ai]"),
     defender: str = typer.Option("ai", help="[manual|ai]"),
     judge: str = typer.Option("ai", help="[manual|ai]"),
@@ -54,7 +53,6 @@ def simulate(
         "case_id": case_data.get("case_id", "001"),
         "phase": "opening_prosecution",
         "judge_mode": judge,
-        "plaintiff_mode": plaintiff,
         "prosecutor_mode": prosecutor,
         "defender_mode": defender,
         "case_facts": case_data.get("case_facts", ""),
@@ -64,8 +62,10 @@ def simulate(
         "validation_reason": None,
         "retry_count": 0,
         "max_retries": 2,
+        "evaluation_result": None,
+        "evaluation_reason": None,
         "objection_pending": False,
-        "current_speaker": "plaintiff" # First up
+        "current_speaker": "prosecutor" # First up
     }
     
     # Push initial
@@ -85,7 +85,7 @@ def simulate(
         phase = current_state.values.get("phase", "unknown")
         
         # Check if we should block for user input
-        if mode == "manual" and role in ["plaintiff", "prosecutor", "defender", "judge"]:
+        if mode == "manual" and role in ["prosecutor", "defender", "judge"]:
             print(f"\n[bold blue][PHASE: {phase} — {role.capitalize()}'s Turn][/bold blue]")
             
             # Print latest transcript logic here if needed
@@ -112,7 +112,7 @@ def simulate(
         for event in graph_with_mem.stream(None, thread_config):
             # Print intermediate LLM outputs if validating
             for k, v in event.items():
-                if k in ["plaintiff_node", "prosecutor_node", "defender_node", "judge_node"]:
+                if k in ["prosecutor_node", "defender_node", "judge_node", "evaluator_node"]:
                     stmt = v.get("pending_statement")
                     if stmt:
                         print(f"\n[bold magenta]{k.capitalize()}:[/bold magenta] {stmt}")
@@ -127,6 +127,11 @@ def simulate(
     transcript_list = final_state.get("transcript", [])
     for turn in transcript_list:
         print(f"{turn['role'].capitalize()}: {turn['content']}")
+
+    if final_state.get("evaluation_result"):
+        print(f"\n[bold cyan]Evaluation Result:[/bold cyan] {final_state.get('evaluation_result')}")
+    if final_state.get("evaluation_reason"):
+        print(f"[cyan]{final_state.get('evaluation_reason')}[/cyan]")
         
     write_transcript_to_json(transcript_list, final_state.get("case_id", "unknown"), output_file)
     print(f"\n[cyan]Transcript saved to: {output_file}[/cyan]")

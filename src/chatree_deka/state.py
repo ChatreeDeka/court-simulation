@@ -18,7 +18,6 @@ class TrialState(TypedDict):
 
     # Role assignment
     judge_mode:      Literal["manual", "ai"]
-    plaintiff_mode:  Literal["manual", "ai"]
     prosecutor_mode: Literal["manual", "ai"]
     defender_mode:   Literal["manual", "ai"]
 
@@ -33,6 +32,10 @@ class TrialState(TypedDict):
     retry_count:  int
     max_retries:  int               # Fixed at 2 in POC config
 
+    # Evaluation state
+    evaluation_result: Optional[Literal["correct", "partially_correct", "incorrect"]]
+    evaluation_reason: Optional[str]
+
     # Control flow
     objection_pending: bool
-    current_speaker:   Literal["judge", "plaintiff", "prosecutor", "defender"]
+    current_speaker:   Literal["judge", "prosecutor", "defender", "evaluator"]
