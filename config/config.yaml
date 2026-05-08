@@ -12,7 +12,7 @@ models:
   judge: "ollama/deepseek-r1:8b"
   plaintiff: "ollama/llama3.2:3b"
   defender: "ollama/llama3.2:3b"
-  prosecutor: "ollama/qwen2.5:7b"
+  prosecutor: "ollama/qwen2.5:7b-instruct"
 
 inference:
   max_tokens:    512
