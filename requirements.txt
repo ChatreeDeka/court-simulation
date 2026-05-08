@@ -7,3 +7,5 @@ loguru
 python-dotenv
 pythainlp
 pyarrow
+chromadb
+sentence-transformers
