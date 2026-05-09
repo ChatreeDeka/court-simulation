@@ -6,7 +6,7 @@ from typing import Any
 
 import chromadb
 import pyarrow.dataset as ds
-import requests
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from pythainlp.util import normalize
 
 
@@ -20,53 +20,9 @@ CHROMA_DIR = Path(__file__).resolve().parent / "chroma_db"
 
 COLLECTION_NAME = "thai_civil_law"
 
-OLLAMA_EMBEDDING_MODEL = "nomic-embed-text"
-OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
+EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
 
 BATCH_SIZE = 64
-
-
-class OllamaEmbeddingFunction:
-    """Embedding function using local Ollama."""
-
-    def __init__(
-        self,
-        model_name: str = OLLAMA_EMBEDDING_MODEL,
-        url: str = OLLAMA_EMBED_URL,
-    ):
-        self.model_name = model_name
-        self.url = url
-
-    def __call__(self, input: list[str]) -> list[list[float]]:
-        try:
-            response = requests.post(
-                self.url,
-                json={
-                    "model": self.model_name,
-                    "input": input,
-                },
-                timeout=120,
-            )
-
-            response.raise_for_status()
-            data = response.json()
-
-            if "embeddings" in data:
-                return data["embeddings"]
-
-            if "embedding" in data:
-                return [data["embedding"]]
-
-            raise RuntimeError(f"Unexpected Ollama response: {data}")
-
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to get embeddings from Ollama "
-                f"using model '{self.model_name}'"
-            ) from e
-
-    def name(self) -> str:
-        return f"ollama-{self.model_name}"
 
 
 def _query_text(text: str) -> str:
@@ -78,8 +34,17 @@ def _passage_text(text: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _embedding_function() -> OllamaEmbeddingFunction:
-    return OllamaEmbeddingFunction()
+def _embedding_function() -> SentenceTransformerEmbeddingFunction:
+    # Try GPU (NVIDIA CUDA), fall back to CPU
+    # Note: AMD GPUs on Windows require ROCm setup which is experimental
+    # CPU will be used as fallback
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    return SentenceTransformerEmbeddingFunction(
+        model_name=EMBEDDING_MODEL,
+        device=device
+    )
 
 
 @lru_cache(maxsize=1)

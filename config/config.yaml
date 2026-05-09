@@ -15,7 +15,7 @@ models:
   evaluator: "ollama/qwen2.5:7b-instruct"
 
 inference:
-  max_tokens:    512
+  max_tokens:    2048
   temperature:   0.3
   load_strategy: sequential   # Load one model at a time; unload after turn
   max_retries:   2
