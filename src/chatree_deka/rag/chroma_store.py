@@ -6,10 +6,7 @@ from typing import Any
 
 import chromadb
 import pyarrow.dataset as ds
-
-from chromadb.utils.embedding_functions import (
-    SentenceTransformerEmbeddingFunction,
-)
+import requests
 
 from pythainlp.util import normalize
 
@@ -27,9 +24,51 @@ CHROMA_DIR = (
 
 COLLECTION_NAME = "thai_civil_law"
 
-EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
+OLLAMA_EMBEDDING_MODEL = "nomic-embed-text"
+OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
 
 BATCH_SIZE = 64
+
+
+class OllamaEmbeddingFunction:
+    """Custom embedding function that calls local Ollama API for GPU-accelerated embeddings."""
+    def __init__(self, model_name: str = OLLAMA_EMBEDDING_MODEL, url: str = OLLAMA_EMBED_URL):
+        self.model_name = model_name
+        self.url = url
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+        for text in input:
+            try:
+                response = requests.post(
+                    self.url,
+                    json={"model": self.model_name, "input": text},
+                    timeout=60,
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                # Debug: print response structure
+                print(f"DEBUG: Ollama response keys: {list(data.keys())}")
+                print(f"DEBUG: Full response: {data}")
+                
+                # Check if embedding is directly in response or nested
+                if "embedding" in data:
+                    embeddings.append(data["embedding"])
+                elif "embeddings" in data and data["embeddings"]:
+                    embeddings.append(data["embeddings"][0])
+                else:
+                    raise KeyError(f"Response keys: {list(data.keys())}. Expected 'embedding' or non-empty 'embeddings'.")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to get embedding from Ollama for text '{text[:50]}...': {e}. "
+                    f"Make sure Ollama is running and '{self.model_name}' model is available."
+                ) from e
+        return embeddings
+
+    def name(self) -> str:
+        """Return the name of the embedding function for Chroma compatibility."""
+        return f"ollama-{self.model_name}"
 
 
 def _query_text(text: str) -> str:
@@ -41,24 +80,19 @@ def _passage_text(text: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _embedding_function() -> SentenceTransformerEmbeddingFunction:
+def _embedding_function() -> OllamaEmbeddingFunction:
 
-    return SentenceTransformerEmbeddingFunction(
-        model_name=EMBEDDING_MODEL
+    return OllamaEmbeddingFunction(model_name=OLLAMA_EMBEDDING_MODEL,
+        url=OLLAMA_EMBED_URL
     )
 
 
 @lru_cache(maxsize=1)
 def _client() -> chromadb.PersistentClient:
 
-    CHROMA_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    CHROMA_DIR.mkdir(parents=True, exist_ok=True,)
 
-    return chromadb.PersistentClient(
-        path=str(CHROMA_DIR)
-    )
+    return chromadb.PersistentClient(path=str(CHROMA_DIR))
 
 
 def _collection() -> chromadb.Collection:
@@ -72,9 +106,7 @@ def _collection() -> chromadb.Collection:
     )
 
 
-def _read_rows(
-    limit: int | None = None,
-):
+def _read_rows(limit: int | None = None,):
 
     dataset = ds.dataset(
         LAW_PARQUET_PATH
