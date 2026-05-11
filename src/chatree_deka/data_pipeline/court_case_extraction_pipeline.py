@@ -27,6 +27,9 @@ ENG_COLUMNS = [
     "legal_issues",
     "plaintiff_claim",
     "defendant_testimony",
+    "plaintiff_evidence",
+    "defendant_evidence",
+    "court_accepted_evidence",
     "related_laws",
     "court_reasoning",
     "judgment",
@@ -38,12 +41,55 @@ SUMMARY_FIELDS = {
     "legal_issues",
     "plaintiff_claim",
     "defendant_testimony",
+    "plaintiff_evidence",
+    "defendant_evidence",
+    "court_accepted_evidence",
     "court_reasoning",
     "judgment",
     "undisputed_facts"
 }
-
 CASE_START_PATTERN = r"(?:คำพิพากษาศาลฎีกาที่|คําพิพากษาศาลฎีกาที่)"
+
+
+# =========================
+# EVIDENCE SCHEMA
+# =========================
+VALID_EVIDENCE_TYPES = {
+    "contract",
+    "receipt",
+    "transfer_slip",
+    "financial_record",
+    "medical_record",
+    "photo",
+    "video",
+    "audio",
+    "chat_log",
+    "email",
+    "document",
+    "official_document",
+    "police_report",
+    "expert_opinion",
+    "witness_testimony",
+    "forensic_report",
+    "inspection_report",
+    "tax_document",
+    "employment_record",
+    "court_record",
+    "identity_document",
+    "property_document",
+    "digital_record",
+    "other"
+}
+
+# Map common hallucinations to valid types
+EVIDENCE_TYPE_MAP = {
+    "statement": "witness_testimony",
+    "testimony": "witness_testimony",
+    "claim": "witness_testimony",
+    "verbal_statement": "witness_testimony",
+    "bank_transfer": "transfer_slip",
+    "payment_receipt": "receipt",
+}
 
 
 # =========================
@@ -54,11 +100,20 @@ def make_field(
     confidence: float = 0.0,
     source_text: str = ""
 ) -> Dict[str, Any]:
-    value = value.strip() if isinstance(value, str) else str(value)
+    if isinstance(value, (dict, list)):
+        out_value = value
+    else:
+        out_value = value.strip() if isinstance(value, str) else str(value)
+
     source_text = source_text.strip() if isinstance(source_text, str) else str(source_text)
     confidence = float(max(0.0, min(1.0, confidence)))
+    if isinstance(out_value, (dict, list)):
+        final_value = out_value if out_value else "Not specified"
+    else:
+        final_value = out_value if out_value else "Not specified"
+
     return {
-        "value": value if value else "Not specified",
+        "value": final_value,
         "confidence": round(confidence, 4),
         "source_text": source_text
     }
@@ -70,7 +125,15 @@ def safe_empty_row() -> Dict[str, Dict[str, Any]]:
 
 def extract_value(row: Dict[str, Dict[str, Any]], key: str) -> str:
     field = row.get(key, {})
-    return field.get("value", "Not specified").strip()
+    val = field.get("value", "Not specified")
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, list):
+        try:
+            return "\n".join([str(x).strip() for x in val if x is not None])
+        except Exception:
+            return str(val)
+    return str(val)
 
 
 def extract_conf(row: Dict[str, Dict[str, Any]], key: str) -> float:
@@ -80,7 +143,8 @@ def extract_conf(row: Dict[str, Dict[str, Any]], key: str) -> float:
 
 def extract_source(row: Dict[str, Dict[str, Any]], key: str) -> str:
     field = row.get(key, {})
-    return field.get("source_text", "").strip()
+    src = field.get("source_text", "")
+    return src.strip() if isinstance(src, str) else str(src)
 
 
 # =========================
@@ -231,7 +295,10 @@ def extract_explicit_thai_date_info(text: str) -> Dict[str, Any]:
 # CLEANUP HELPERS
 # =========================
 def remove_chinese_chars(text: str) -> str:
+    # operate only on strings; pass through lists/dicts unchanged
     if not text or text == "Not specified":
+        return text
+    if not isinstance(text, str):
         return text
     text = re.sub(r"[\u4e00-\u9fff]+", "", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -239,8 +306,18 @@ def remove_chinese_chars(text: str) -> str:
 
 
 def deduplicate_lines(text: str) -> str:
+    # If given a non-string (list/dict), attempt to deduplicate list items
     if not text or text == "Not specified":
         return text
+    if isinstance(text, list):
+        seen = []
+        for item in text:
+            s = str(item).strip()
+            if s and s != "ไม่มีข้อมูล" and s not in seen:
+                seen.append(s)
+        return seen if seen else "Not specified"
+    if not isinstance(text, str):
+        return str(text)
 
     lines = [x.strip() for x in re.split(r"[\n;|]+", text) if x.strip()]
     seen = []
@@ -249,6 +326,38 @@ def deduplicate_lines(text: str) -> str:
             seen.append(line)
 
     return "\n".join(seen) if seen else "Not specified"
+
+
+def normalize_evidence(text: str) -> str:
+    # Accept lists directly (structured evidence)
+    if not text or text == "Not specified":
+        return text
+    if isinstance(text, list):
+        return text
+    if not isinstance(text, str):
+        return str(text)
+
+    items = re.split(r"[\n;,]+", text)
+
+    cleaned = []
+    seen = set()
+
+    for item in items:
+        item = item.strip()
+
+        if not item:
+            continue
+
+        if len(item) < 3:
+            continue
+
+        if item in seen:
+            continue
+
+        seen.add(item)
+        cleaned.append(item)
+
+    return "\n".join(cleaned) if cleaned else "Not specified"
 
 
 def shorten_legal_issues(text: str) -> str:
@@ -279,6 +388,35 @@ def clean_source_text(text: str, max_len: int = 500) -> str:
     return text[:max_len].strip()
 
 
+def normalize_evidence_item(item: Any) -> Dict[str, Any]:
+    """
+    Normalize an evidence item to ensure it has valid type and description.
+    Maps hallucinated types to valid ones; returns None if invalid.
+    """
+    if not isinstance(item, dict):
+        return None
+
+    etype = item.get("type", "").strip().lower()
+    desc = item.get("description", "").strip()
+
+    # Map hallucinated types to valid ones
+    if etype in EVIDENCE_TYPE_MAP:
+        etype = EVIDENCE_TYPE_MAP[etype]
+
+    # Validate type
+    if etype not in VALID_EVIDENCE_TYPES:
+        etype = "other"
+
+    # Require description
+    if not desc:
+        return None
+
+    return {
+        "type": etype,
+        "description": desc
+    }
+
+
 # =========================
 # OLLAMA
 # =========================
@@ -288,7 +426,9 @@ def call_ollama(messages: List[Dict], model_name: str = MODEL_NAME, num_ctx: int
         "messages": messages,
         "stream": False,
         "options": {
-            "temperature": 0.0,
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "repeat_penalty": 1.05,
             "num_ctx": num_ctx,
             "num_predict": num_predict
         }
@@ -317,15 +457,66 @@ Return ONLY valid JSON with this structure:
   "defendant": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "court_type": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "judgment_date": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
+
   "legal_issues": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
+
   "plaintiff_claim": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "defendant_testimony": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
+
+    "plaintiff_evidence": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
+    "defendant_evidence": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
+    "court_accepted_evidence": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
+
   "related_laws": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "court_reasoning": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "judgment": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "damages_awarded": {{"value": "...", "confidence": 0.0, "source_text": "..."}},
   "undisputed_facts": {{"value": "...", "confidence": 0.0, "source_text": "..."}}
 }}
+
+Preferred evidence structure (model should output evidence as arrays of objects):
+
+"evidence": {{
+    "plaintiff_evidence": [
+        {{"type": "contract", "description": "สัญญากู้ยืมเงินลงวันที่ 5 มกราคม 2565"}},
+        {{"type": "bank_transfer", "description": "สลิปโอนเงินจำนวน 500,000 บาท"}}
+    ],
+    "defendant_evidence": [
+        {{"type": "payment_receipt", "description": "ใบเสร็จชำระหนี้บางส่วน"}}
+    ],
+    "witness_testimony": [
+        {{"witness": "นาย ก.", "description": "ยืนยันว่าจำเลยลงลายมือชื่อในสัญญา"}}
+    ]
+}}
+
+Note: Evidence objects MUST include `type` (or `witness` for witness entries) and `description`. Do NOT include `source_text` or `confidence` in the returned JSON — keep those internally for your reasoning but omit them from the output.
+
+Rules for evidence fields:
+
+1. Evidence MUST be returned as JSON array:
+   [
+     {{
+       "type": "...",
+       "description": "..."
+     }}
+   ]
+
+2. type MUST be ONE of these exact strings (case-insensitive):
+   contract, receipt, transfer_slip, financial_record, medical_record,
+   photo, video, audio, chat_log, email, document, official_document,
+   police_report, expert_opinion, witness_testimony, forensic_report,
+   inspection_report, tax_document, employment_record, court_record,
+   identity_document, property_document, digital_record, other
+
+3. NEVER invent new evidence types.
+
+4. If evidence is only a verbal assertion or statement without physical proof,
+   use type: "witness_testimony"
+
+5. If no evidence is explicitly mentioned, return an empty array: []
+
+6. For narrative Thai text that describes facts without specific physical evidence,
+   consider it witness_testimony or move it to plaintiff_claim/defendant_testimony.
 
 Rules:
 1. confidence must be a number from 0.0 to 1.0.
@@ -341,6 +532,11 @@ Rules:
 8. Do not merge multiple cases.
 9. Keep factual fields short and precise.
 10. For narrative fields, summarize briefly and faithfully.
+11. Extract evidence separately from claims whenever possible.
+12. plaintiff_evidence: evidence supporting the plaintiff, such as contracts, receipts, medical certificates, photos, chat logs, witness testimony, transfer slips, and police reports.
+13. defendant_evidence: evidence supporting the defendant.
+14. court_accepted_evidence: evidence explicitly relied upon or accepted by the court in its reasoning.
+15. Keep evidence concise and list-like.
 
 Field list:
 {fields_text}
@@ -401,7 +597,7 @@ Supporting text:
 # =========================
 def normalize_field_obj(obj: Any) -> Dict[str, Any]:
     if isinstance(obj, dict):
-        value = str(obj.get("value", "Not specified")).strip() or "Not specified"
+        value = obj.get("value", "Not specified")
         confidence = obj.get("confidence", 0.0)
         source_text = str(obj.get("source_text", "")).strip()
 
@@ -410,7 +606,12 @@ def normalize_field_obj(obj: Any) -> Dict[str, Any]:
         except Exception:
             confidence = 0.0
 
+        # If the value is structured (list/dict), pass it through
         return make_field(value=value, confidence=confidence, source_text=source_text)
+
+    if isinstance(obj, list):
+        # list of evidence objects or strings -> keep as structured value
+        return make_field(value=obj, confidence=0.0, source_text="")
 
     if isinstance(obj, str):
         return make_field(value=obj, confidence=0.5 if obj.strip() and obj.strip() != "Not specified" else 0.0, source_text="")
@@ -435,9 +636,27 @@ def parse_json_output(text: str) -> Dict[str, Dict[str, Any]]:
     except Exception:
         return safe_empty_row()
 
+    # If the model returns a nested `evidence` object, merge those subkeys
+    if isinstance(data, dict) and "evidence" in data and isinstance(data["evidence"], dict):
+        for k, v in data["evidence"].items():
+            # place evidence arrays into top-level keys so downstream code sees them
+            data[k] = v
+
     row = safe_empty_row()
     for col in ENG_COLUMNS:
-        row[col] = normalize_field_obj(data.get(col, make_field()))
+        raw_val = data.get(col, make_field())
+        # If raw_val is a list of dicts, remove internal keys that should not be in final output
+        if isinstance(raw_val, list):
+            cleaned_list = []
+            for item in raw_val:
+                if isinstance(item, dict):
+                    item_copy = {kk: vv for kk, vv in item.items() if kk not in ("source_text", "confidence")}
+                    cleaned_list.append(item_copy)
+                else:
+                    cleaned_list.append(item)
+            row[col] = normalize_field_obj(cleaned_list)
+        else:
+            row[col] = normalize_field_obj(raw_val)
     return row
 
 
@@ -483,13 +702,41 @@ def extract_from_chunk(chunk_text: str, model_name: str = MODEL_NAME) -> Dict[st
 # MERGE CHUNKS INTO 1 CASE
 # =========================
 def combine_field(existing: Dict[str, Any], new_field: Dict[str, Any], field_name: str) -> Dict[str, Any]:
-    ex_val = existing.get("value", "Not specified").strip()
+    ex_val_raw = existing.get("value", "Not specified")
     ex_conf = float(existing.get("confidence", 0.0))
     ex_src = existing.get("source_text", "").strip()
 
-    new_val = new_field.get("value", "Not specified").strip()
+    new_val_raw = new_field.get("value", "Not specified")
     new_conf = float(new_field.get("confidence", 0.0))
     new_src = new_field.get("source_text", "").strip()
+
+    # Handle structured list values (evidence arrays)
+    if isinstance(ex_val_raw, list) or isinstance(new_val_raw, list):
+        ex_list = ex_val_raw if isinstance(ex_val_raw, list) else ([] if ex_val_raw == "Not specified" else [ex_val_raw])
+        new_list = new_val_raw if isinstance(new_val_raw, list) else ([] if new_val_raw == "Not specified" else [new_val_raw])
+
+        if not new_list:
+            return existing
+        if not ex_list:
+            return make_field(new_list, new_conf, "")
+
+        # Merge lists, preserving dict items and deduplicating by JSON representation
+        seen = set()
+        merged = []
+        for item in ex_list + new_list:
+            try:
+                key = json.dumps(item, ensure_ascii=False, sort_keys=True)
+            except Exception:
+                key = str(item)
+            if key not in seen:
+                seen.add(key)
+                merged.append(item)
+
+        return make_field(merged, max(ex_conf, new_conf) * 0.95, "")
+
+    # Fallback to string handling
+    ex_val = str(ex_val_raw).strip()
+    new_val = str(new_val_raw).strip()
 
     if new_val == "Not specified":
         return existing
@@ -539,9 +786,15 @@ def merge_chunk_rows(rows: List[Dict[str, Dict[str, Any]]]) -> Dict[str, Dict[st
 # SUMMARIZATION
 # =========================
 def summarize_field(field_name: str, field_obj: Dict[str, Any], model_name: str = MODEL_NAME) -> Dict[str, Any]:
-    text = field_obj.get("value", "").strip()
+    raw_value = field_obj.get("value", "")
     src = field_obj.get("source_text", "").strip()
     conf = float(field_obj.get("confidence", 0.0))
+
+    # If the field is structured (list/dict), skip summarization and return as-is
+    if isinstance(raw_value, (list, dict)):
+        return make_field(value=raw_value, confidence=conf, source_text=src)
+
+    text = str(raw_value).strip()
 
     if not text or text == "Not specified":
         return make_field()
@@ -616,10 +869,52 @@ def clean_final_row(row: Dict[str, Dict[str, Any]], full_case_text: str, model_n
         "undisputed_facts"
     ]
 
+    evidence_fields = [
+        "plaintiff_evidence",
+        "defendant_evidence",
+        "court_accepted_evidence"
+    ]
+
     for col in narrative_fields:
         val = cleaned[col]["value"]
         cleaned[col]["value"] = deduplicate_lines(remove_chinese_chars(val))
         cleaned[col]["source_text"] = clean_source_text(cleaned[col]["source_text"], max_len=700)
+
+    for col in evidence_fields:
+        val = cleaned[col]["value"]
+
+        # If the evidence field is a structured list (from the LLM), strip internal keys
+        if isinstance(val, list):
+            cleaned_items = []
+            for it in val:
+                if isinstance(it, dict):
+                    # remove source_text/confidence and normalize description strings
+                    it.pop("source_text", None)
+                    it.pop("confidence", None)
+                    if "description" in it and isinstance(it["description"], str):
+                        it["description"] = remove_chinese_chars(it["description"]).strip()
+                    
+                    # Normalize and validate evidence type
+                    normalized = normalize_evidence_item(it)
+                    if normalized:
+                        cleaned_items.append(normalized)
+                else:
+                    # plain strings -> treat as witness_testimony
+                    s = remove_chinese_chars(str(it))
+                    if s and s != "Not specified":
+                        cleaned_items.append({"type": "witness_testimony", "description": s})
+
+            cleaned[col]["value"] = cleaned_items if cleaned_items else []
+            cleaned[col]["source_text"] = ""
+        else:
+            cleaned[col]["value"] = normalize_evidence(
+                remove_chinese_chars(val)
+            )
+
+            cleaned[col]["source_text"] = clean_source_text(
+                cleaned[col]["source_text"],
+                max_len=700
+            )
 
     cleaned["legal_issues"]["value"] = shorten_legal_issues(cleaned["legal_issues"]["value"])
 
