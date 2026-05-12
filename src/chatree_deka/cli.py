@@ -1,18 +1,42 @@
 from __future__ import annotations
-import typer
+import os
 import json
 import time
+from pathlib import Path
+from dotenv import load_dotenv
+from loguru import logger
+import typer
 from rich import print
 from langgraph.checkpoint.memory import MemorySaver
+from chatree_deka.config import load_config
 from chatree_deka.graph.builder import build_graph
 from chatree_deka.state import TrialState
 from chatree_deka.io.transcript_writer import write_transcript_to_json
+from training.train import run_training
 
 app = typer.Typer(help="ChatreeDeka POC CLI Courtroom Simulator")
 
 @app.callback()
 def main():
+    load_dotenv()
     pass
+
+
+def configure_monitoring(cfg: dict) -> None:
+    if not cfg.get("monitoring", {}).get("langsmith_enabled"):
+        return
+
+    api_key = os.getenv("LANGCHAIN_API_KEY")
+    if not api_key:
+        logger.warning(
+            "monitoring.langsmith_enabled is true but LANGCHAIN_API_KEY is not set. "
+            "Tracing will be disabled for this session."
+        )
+        return
+
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_PROJECT"] = cfg.get("monitoring", {}).get("langsmith_project", "chatree-deka-poc")
+
 
 @app.command()
 def simulate(
@@ -20,15 +44,30 @@ def simulate(
     prosecutor: str = typer.Option("ai", help="[manual|ai]"),
     defender: str = typer.Option("ai", help="[manual|ai]"),
     judge: str = typer.Option("ai", help="[manual|ai]"),
+    mode: str = typer.Option("run", help="[run|train|coached]"),
     output_file: str = typer.Option("transcript_output.json", help="Path to save the structured JSON transcript")
 ):
     print("[bold green]Starting ChatreeDeka Simulation...[/bold green]")
+    cfg = load_config()
+    configure_monitoring(cfg)
+
+    mode = mode.lower()
+    if mode not in ("run", "train", "coached"):
+        raise typer.BadParameter("mode must be one of run, train, coached")
+
+    if mode == "train":
+        if any(role == "manual" for role in (prosecutor, defender, judge)):
+            logger.warning(
+                "Train mode forces all participants to AI. Manual role flags are ignored."
+            )
+        prosecutor = defender = judge = "ai"
+
     try:
         with open(case_file, "r", encoding="utf-8") as f:
             case_data = json.load(f)
             if isinstance(case_data, list) and len(case_data) > 0:
                 case_data = case_data[0]
-            
+
             if "case_facts" not in case_data:
                 facts = (
                     f"โจทก์: {case_data.get('plaintiff', 'ไม่ระบุ')}\n"
@@ -39,14 +78,11 @@ def simulate(
                 case_data["case_facts"] = facts
     except Exception as e:
         print(f"[bold red]Failed to load case file: {e}[/bold red]")
-        # Placeholder mock load if file doesn't exist
         case_data = {"case_id": "test_1", "case_facts": "โจทย์ฟ้องเรียกค่าเสียหายฐานละเมิด"}
         print("[yellow]Using placeholder case data...[/yellow]")
 
-    # Build Graph with Checkpointer
     checkpointer = MemorySaver()
     graph_with_mem = build_graph(checkpointer=checkpointer)
-
     thread_config = {"configurable": {"thread_id": "session_1"}}
 
     state: TrialState = {
@@ -55,6 +91,7 @@ def simulate(
         "judge_mode": judge,
         "prosecutor_mode": prosecutor,
         "defender_mode": defender,
+        "mode": mode,
         "case_facts": case_data.get("case_facts", ""),
         "transcript": [],
         "pending_statement": None,
@@ -65,10 +102,9 @@ def simulate(
         "evaluation_result": None,
         "evaluation_reason": None,
         "objection_pending": False,
-        "current_speaker": "prosecutor" # First up
+        "current_speaker": "prosecutor"
     }
-    
-    # Push initial
+
     for event in graph_with_mem.stream(state, thread_config):
         pass
 
@@ -77,24 +113,19 @@ def simulate(
         next_nodes = current_state.next
         if not next_nodes:
             break
-            
+
         cur_node = next_nodes[0]
         role = cur_node.replace("_node", "")
-        # role can be phase_router_after_val, but it won't interrupt
-        mode = current_state.values.get(f"{role}_mode", "ai")
+        mode_value = current_state.values.get(f"{role}_mode", "ai")
         phase = current_state.values.get("phase", "unknown")
-        
-        # Check if we should block for user input
-        if mode == "manual" and role in ["prosecutor", "defender", "judge"]:
+
+        if mode_value == "manual" and role in ["prosecutor", "defender", "judge"]:
             print(f"\n[bold blue][PHASE: {phase} — {role.capitalize()}'s Turn][/bold blue]")
-            
-            # Print latest transcript logic here if needed
             operator_input = typer.prompt("Enter your statement (or /object, /evidence <text>, /end)")
-            
+
             if operator_input.startswith("/object"):
                 graph_with_mem.update_state(thread_config, {"objection_pending": True})
                 print("[yellow]Objection logged! The judge will rule next turn.[/yellow]")
-                # We do not append the command to statement. We give empty statement.
                 graph_with_mem.update_state(thread_config, {"pending_statement": None})
             elif operator_input.startswith("/evidence"):
                 new_ev = operator_input.replace("/evidence", "").strip()
@@ -108,9 +139,7 @@ def simulate(
             else:
                 graph_with_mem.update_state(thread_config, {"pending_statement": operator_input})
 
-        # Run turn        
         for event in graph_with_mem.stream(None, thread_config):
-            # Print intermediate LLM outputs if validating
             for k, v in event.items():
                 if k in ["prosecutor_node", "defender_node", "judge_node", "evaluator_node"]:
                     stmt = v.get("pending_statement")
@@ -119,22 +148,64 @@ def simulate(
                 elif k == "validation_node":
                     if v.get("validation_result") == "fail":
                         print(f"[bold red]Validation Failed:[/bold red] {v.get('validation_reason')}")
-        
+
         time.sleep(5)
 
-    print("\n[bold green]Simulation Ended. Final Transcript:[/bold green]")
     final_state = graph_with_mem.get_state(thread_config).values
     transcript_list = final_state.get("transcript", [])
-    for turn in transcript_list:
-        print(f"{turn['role'].capitalize()}: {turn['content']}")
+
+    if mode != "train":
+        print("\n[bold green]Simulation Ended. Final Transcript:[/bold green]")
+        for turn in transcript_list:
+            print(f"{turn['role'].capitalize()}: {turn['content']}")
 
     if final_state.get("evaluation_result"):
         print(f"\n[bold cyan]Evaluation Result:[/bold cyan] {final_state.get('evaluation_result')}")
     if final_state.get("evaluation_reason"):
         print(f"[cyan]{final_state.get('evaluation_reason')}[/cyan]")
-        
-    write_transcript_to_json(transcript_list, final_state.get("case_id", "unknown"), output_file)
+
+    summary = final_state.get("summary")
+    if summary:
+        print("\n[bold green]Trial Summary:[/bold green]")
+        print(f"Mode: {summary.get('mode')}")
+        print(f"Winner: {summary['verdict'].get('winner')} \nConfidence: {summary['verdict'].get('confidence')}")
+        if summary.get("episode_reward") is not None:
+            print(f"Episode Reward: {summary['episode_reward']}")
+
+    write_transcript_to_json(
+        transcript_list,
+        final_state.get("case_id", "unknown"),
+        output_file,
+        summary=summary,
+    )
     print(f"\n[cyan]Transcript saved to: {output_file}[/cyan]")
+
+
+@app.command()
+def train(
+    case_file: str | None = typer.Option(
+        None, help="Override training case file path from config"
+    ),
+    episodes: int | None = typer.Option(
+        None, help="Override maximum episodes from config"
+    ),
+    checkpoint_path: str | None = typer.Option(
+        None, help="Override checkpoint directory from config"
+    ),
+    checkpoint_every: int | None = typer.Option(
+        None, help="Override checkpoint save frequency from config"
+    ),
+):
+    print("[bold green]Starting ChatreeDeka Training...[/bold green]")
+    cfg = load_config()
+    configure_monitoring(cfg)
+    run_training(
+        case_file=case_file,
+        episodes=episodes,
+        checkpoint_path=checkpoint_path,
+        checkpoint_every=checkpoint_every,
+    )
+
 
 if __name__ == "__main__":
     app()
