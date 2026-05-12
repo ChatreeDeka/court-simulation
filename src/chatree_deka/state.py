@@ -13,7 +13,8 @@ class TrialState(TypedDict):
         "cross_examination",
         "closing_prosecution",
         "closing_defense",
-        "verdict"
+        "verdict",
+        "summary"
     ]
 
     # Role assignment
@@ -39,3 +40,10 @@ class TrialState(TypedDict):
     # Control flow
     objection_pending: bool
     current_speaker:   Literal["judge", "prosecutor", "defender", "evaluator"]
+
+    # Execution mode
+    mode: Literal["run", "train", "coached"]
+
+    # Post-trial outputs
+    episode_reward: Optional[float]
+    summary:        Optional[dict]
