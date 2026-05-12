@@ -1,6 +1,20 @@
 [project]
 name = "chatree_deka"
 version = "0.1.0"
+dependencies = [
+    "typer[all]>=0.9.0",
+    "loguru>=0.7.0",
+    "python-dotenv>=1.0.0",
+    "litellm>=1.0.0",
+    "langgraph>=0.1.0",
+    "llamaindex>=0.9.0",
+    "chromadb>=0.4.0",
+    "pythainlp>=3.0.0",
+    "marti>=0.1.0",
+]
+
+[project.optional-dependencies]
+observability = ["langsmith>=0.1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

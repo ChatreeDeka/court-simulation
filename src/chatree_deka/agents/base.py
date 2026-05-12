@@ -1,20 +1,15 @@
 from __future__ import annotations
 import os
-import yaml
-from pathlib import Path
 from loguru import logger
 from litellm import completion
+from chatree_deka.config import load_config
 
-# Load Config
-CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "config.yaml"
 
 def _get_config() -> dict:
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        logger.error(f"Failed to load config: {e}")
+    config = load_config()
+    if not config:
         return {"inference": {"max_tokens": 512, "temperature": 0.3}, "models": {}}
+    return config
 
 _current_loaded_model = None
 
