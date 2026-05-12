@@ -14,6 +14,32 @@ app = typer.Typer(help="ChatreeDeka POC CLI Courtroom Simulator")
 def main():
     pass
 
+
+def _format_case_facts(case_data: dict) -> str:
+    parts = [
+        f"โจทก์: {case_data.get('plaintiff', 'ไม่ระบุ')}",
+        f"จำเลย: {case_data.get('defendant', 'ไม่ระบุ')}",
+        f"คำฟ้อง/คำร้อง: {case_data.get('plaintiff_claim', 'ไม่ระบุ')}",
+        f"ข้อเท็จจริงที่ยุติแล้ว: {case_data.get('undisputed_facts', 'ไม่ระบุ')}",
+    ]
+
+    if case_data.get("plaintiff_evidence"):
+        parts.append(f"พยานหลักฐานฝ่ายโจทก์: {case_data.get('plaintiff_evidence')}")
+
+    if case_data.get("defendant_evidence"):
+        parts.append(f"พยานหลักฐานฝ่ายจำเลย: {case_data.get('defendant_evidence')}")
+
+    if case_data.get("court_accepted_evidence"):
+        parts.append(f"พยานหลักฐานที่ศาลรับฟัง: {case_data.get('court_accepted_evidence')}")
+
+    if case_data.get("court_reasoning"):
+        parts.append(f"เหตุผลศาล: {case_data.get('court_reasoning')}")
+
+    if case_data.get("judgment"):
+        parts.append(f"คำพิพากษา: {case_data.get('judgment')}")
+
+    return "\n".join(str(part) for part in parts if part)
+
 @app.command()
 def simulate(
     case_file: str = typer.Option(..., help="Path to case facts JSON"),
@@ -30,13 +56,7 @@ def simulate(
                 case_data = case_data[0]
             
             if "case_facts" not in case_data:
-                facts = (
-                    f"โจทก์: {case_data.get('plaintiff', 'ไม่ระบุ')}\n"
-                    f"จำเลย: {case_data.get('defendant', 'ไม่ระบุ')}\n"
-                    f"คำฟ้อง/คำร้อง: {case_data.get('plaintiff_claim', 'ไม่ระบุ')}\n"
-                    f"ข้อเท็จจริงที่ยุติแล้ว: {case_data.get('undisputed_facts', 'ไม่ระบุ')}"
-                )
-                case_data["case_facts"] = facts
+                case_data["case_facts"] = _format_case_facts(case_data)
     except Exception as e:
         print(f"[bold red]Failed to load case file: {e}[/bold red]")
         # Placeholder mock load if file doesn't exist
