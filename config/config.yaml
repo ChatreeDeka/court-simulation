@@ -8,9 +8,9 @@ models:
   # defender:   "huggingface/meta-llama/Llama-3.2-3B-Instruct"
   # judge:      "huggingface/deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 
-  judge: "ollama/deepseek-r1:8b"
-  defender: "ollama/llama3.2:3b"
-  prosecutor: "ollama/llama3.2:3b"
+  judge: "ollama/llama3.2:3b"
+  defender: "ollama/deepseek-r1:8b"
+  prosecutor: "ollama/deepseek-r1:8b"
   evaluator: "ollama/qwen2.5:7b-instruct"
 
 inference:

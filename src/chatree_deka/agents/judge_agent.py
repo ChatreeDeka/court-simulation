@@ -1,6 +1,9 @@
 from __future__ import annotations
 from chatree_deka.agents import base
 from chatree_deka.rag.retriever import semantic_search
+import re
+
+MAX_RETRY = 3
 
 SYSTEM_PROMPT = """You are a judge in the Civil Court of Thailand.
 
@@ -99,7 +102,7 @@ def act(case_facts: str, transcript: list[dict], objection_pending: bool = False
         {"role": "system", "content": SYSTEM_PROMPT + f"\n[ข้อมูลข้อกฎหมายที่เกี่ยวข้อง]:\n{rag_context}"},
         {"role": "user", "content": f"[สถานะปัจจุบัน]: {phase}\n\n[ข้อเท็จจริงของคดี]:\n{case_facts}\n\n[บันทึกการพิจารณาคดี]:\n{transcript}\n\n{task_prompt}"}
     ]
-    return base.generate("judge", messages)
+    return _generate_valid_thai("judge", messages)
 
 
 def determine_verdict_winner(case_facts: str, transcript: list[dict]) -> str:
@@ -205,3 +208,44 @@ def compute_verdict_confidence(case_facts: str, transcript: list[dict], winner: 
         base_confidence = min(1.0, base_confidence + 0.1)
     
     return base_confidence
+
+def is_valid_thai(text: str) -> bool:
+    # reject chinese
+    if re.search(r'[\u4e00-\u9fff]', text):
+        return False
+
+    # reject large english sequences
+    if re.search(r'[A-Za-z]{4,}', text):
+        return False
+
+    # must contain thai
+    if not re.search(r'[\u0E00-\u0E7F]', text):
+        return False
+
+    return True
+
+
+def _build_retry_messages(messages: list[dict]) -> list[dict]:
+    retry_warning = (
+        "คำเตือน: "
+        "ห้ามใช้ภาษาอังกฤษ "
+        "ห้ามใช้ภาษาจีน "
+        "ถ้าใช้ภาษาอื่นที่ไม่ใช่ภาษาไทย จะถือว่าไม่ถูกต้อง "
+        "โปรดตอบเป็นภาษาไทยเท่านั้น"
+    )
+    updated_messages = list(messages)
+    updated_messages.append({"role": "system", "content": retry_warning})
+    return updated_messages
+
+
+def _generate_valid_thai(role: str, messages: list[dict]) -> str:
+    current_messages = list(messages)
+
+    for attempt in range(MAX_RETRY):
+        output = base.generate(role, current_messages)
+        if is_valid_thai(output):
+            return output
+
+        current_messages = _build_retry_messages(messages)
+
+    return output
