@@ -100,3 +100,108 @@ def act(case_facts: str, transcript: list[dict], objection_pending: bool = False
         {"role": "user", "content": f"[สถานะปัจจุบัน]: {phase}\n\n[ข้อเท็จจริงของคดี]:\n{case_facts}\n\n[บันทึกการพิจารณาคดี]:\n{transcript}\n\n{task_prompt}"}
     ]
     return base.generate("judge", messages)
+
+
+def determine_verdict_winner(case_facts: str, transcript: list[dict]) -> str:
+    """
+    Determine the verdict winner based on Thai legal code, case facts, and transcript.
+    Returns: "prosecution", "defense", or "compromise"
+    """
+    rag_context = semantic_search(case_facts)
+    
+    # Extract judge's final ruling from transcript
+    verdict_text = ""
+    for turn in reversed(transcript):
+        if turn.get("role") == "judge":
+            verdict_text = turn.get("content", "")
+            break
+    
+    # If no judge ruling, analyze the transcript
+    if not verdict_text:
+        # Analyze arguments from both sides
+        prosecutor_strength = sum(1 for turn in transcript if turn.get("role") == "prosecutor" and turn.get("valid", False))
+        defender_strength = sum(1 for turn in transcript if turn.get("role") == "defender" and turn.get("valid", False))
+        
+        if prosecutor_strength > defender_strength:
+            return "prosecution"
+        elif defender_strength > prosecutor_strength:
+            return "defense"
+        else:
+            return "compromise"
+    
+    # Use judge's ruling text to determine winner
+    text = verdict_text.lower()
+    compromise_markers = [
+        "ประนีประนอม",
+        "ตกลงกัน",
+        "ตกลงร่วม",
+        "ทั้งสองฝ่าย",
+        "ทั้งโจทก์และจำเลย",
+        "ยินยอม",
+    ]
+    if any(marker in text for marker in compromise_markers):
+        return "compromise"
+
+    if "โจทก์" in text and "จำเลย" not in text:
+        return "prosecution"
+    if "จำเลย" in text and "โจทก์" not in text:
+        return "defense"
+
+    prosecution_win = any(
+        token in text
+        for token in [
+            "โจทก์ชนะ",
+            "โจทก์ได้รับ",
+            "โจทก์ชนะคดี",
+            "โจทก์ได้รับคำพิพากษา",
+        ]
+    )
+    defense_win = any(
+        token in text
+        for token in [
+            "จำเลยชนะ",
+            "จำเลยได้รับ",
+            "จำเลยชนะคดี",
+            "จำเลยได้รับคำพิพากษา",
+        ]
+    )
+
+    if prosecution_win and not defense_win:
+        return "prosecution"
+    if defense_win and not prosecution_win:
+        return "defense"
+    if "ไม่" in text and "จำเลย" in text and "โจทก์" not in text:
+        return "defense"
+    if "ไม่" in text and "โจทก์" in text and "จำเลย" not in text:
+        return "prosecution"
+
+    return "compromise"
+
+
+def compute_verdict_confidence(case_facts: str, transcript: list[dict], winner: str) -> float:
+    """
+    Compute confidence in the verdict based on legal analysis, evidence strength, and transcript validity.
+    Returns: float between 0.0 and 1.0
+    """
+    if winner == "compromise":
+        return 0.5
+    
+    rag_context = semantic_search(case_facts)
+    
+    # Base confidence on valid turns by the winning side
+    role = "prosecutor" if winner == "prosecution" else "defender"
+    turns = [turn for turn in transcript if turn.get("role") == role]
+    total = len(turns)
+    if total == 0:
+        return 0.0
+    
+    # Count valid turns
+    valid = sum(1 for turn in turns if turn.get("valid") is True)
+    base_confidence = valid / total
+    
+    # Adjust based on legal context strength (simplified - could be enhanced)
+    # For now, assume RAG provides strong context, boost confidence slightly
+    if rag_context:
+        base_confidence = min(1.0, base_confidence + 0.1)
+    
+    return base_confidence

@@ -63,6 +63,43 @@ IMPORTANT OUTPUT RULES:
    "ผลการประเมิน: <correct | partially_correct | incorrect>"
 """
 
+def evaluate_turns(role: str, turns: list[dict]) -> list[bool]:
+    if not turns:
+        return []
+
+    summary_lines = []
+    for idx, turn in enumerate(turns, start=1):
+        content = turn.get("content", "")
+        summary_lines.append(f"Turn {idx}: {content}")
+
+    rag_context = semantic_search("\n".join(turn.get("content", "") for turn in turns))
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT + f"\n[ข้อมูลข้อกฎหมายที่เกี่ยวข้อง]:\n{rag_context}"},
+        {"role": "user", "content": (
+            f"คุณเป็นผู้ประเมินสำหรับบทบาท {role} ในการทดลองศาลไทย\n"
+            "สำหรับแต่ละเทิร์นด้านล่าง ให้ระบุว่าเทิร์นนั้นเป็น valid หรือ invalid\n"
+            "ตอบเป็นรายการบรรทัดละหนึ่งค่าโดยใช้ true/false เท่านั้นในลำดับเดียวกับเทิร์นที่ให้:\n\n"
+            + "\n".join(summary_lines)
+        )}
+    ]
+
+    response = base.generate("evaluator", messages)
+    results: list[bool] = []
+    for line in response.splitlines():
+        normalized = line.strip().lower()
+        if normalized.startswith("true") or normalized.startswith("valid") or normalized.startswith("correct"):
+            results.append(True)
+        elif normalized.startswith("false") or normalized.startswith("invalid") or normalized.startswith("incorrect"):
+            results.append(False)
+        elif normalized in {"yes", "no"}:
+            results.append(normalized == "yes")
+
+    if len(results) != len(turns):
+        return [True if turn.get("valid", False) else False for turn in turns]
+
+    return results
+
+
 def act(case_facts: str, transcript: list[dict], judge_ruling: str = "") -> str:
     rag_context = semantic_search(case_facts)
     user_prompt = (

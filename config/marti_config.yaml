@@ -1,0 +1,6 @@
+# MARTI self-play training configuration for ChatreeDeka POC
+# Configures the number of episodes and checkpoint behavior for training/train.py
+
+episodes:       50
+checkpoint_dir: "training/checkpoints/"
+checkpoint_every: 10

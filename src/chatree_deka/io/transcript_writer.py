@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 from loguru import logger
 
-def write_transcript_to_json(transcript: list[dict], case_id: str, output_path: str) -> None:
+def write_transcript_to_json(transcript: list[dict], case_id: str, output_path: str, summary: dict | None = None) -> None:
     """
-    Writes the transcript list to a structured JSON log at session end.
+    Writes the transcript list and optional post-trial summary to a structured JSON log.
     """
     try:
         path = Path(output_path)
@@ -12,7 +12,8 @@ def write_transcript_to_json(transcript: list[dict], case_id: str, output_path: 
         
         log_data = {
             "case_id": case_id,
-            "transcript": transcript
+            "transcript": transcript,
+            "summary": summary,
         }
         
         with open(path, "w", encoding="utf-8") as f:
