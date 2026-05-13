@@ -49,9 +49,13 @@ def judge_node(state: TrialState) -> dict:
     phase = state.get("phase", "")
     statement = judge_agent.act(facts, transcript, objection, phase)
     
+    # Determine next speaker based on context
+    next_speaker = judge_agent.determine_next_speaker(facts, transcript, phase, objection)
+    
     return {
         "current_speaker": "judge", 
         "transcript": [{"role": "judge", "content": statement, "valid": True}],
         "objection_pending": False, # Clear flag
-        "retry_count": 0
+        "retry_count": 0,
+        "next_speaker": next_speaker
     }

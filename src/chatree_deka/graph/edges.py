@@ -7,7 +7,14 @@ def validation_route(state: TrialState) -> str:
     """
     # Validation pass
     if state.get("validation_result") == "pass":
-        return "phase_router_after_val"
+        # After validation passes, go back to the current speaker for them to continue
+        current_speaker = state.get("current_speaker")
+        if current_speaker == "prosecutor":
+            return "prosecutor_node"
+        elif current_speaker == "defender":
+            return "defender_node"
+        else:
+            return "prosecutor_node"  # Default fallback
     
     # Validation fail, can retry
     retry_count = state.get("retry_count", 0)
@@ -47,8 +54,22 @@ def phase_router_after_val(state: TrialState) -> str:
     # If unhandled, hand off to judge
     return "judge_node"
 
-def post_judge_router(state: TrialState) -> str:
+def judge_router(state: TrialState) -> str:
     """
-    Decides routing after judge speaks.
+    Routes based on judge's decision about who should speak next.
     """
-    return "evaluator_node"
+    next_speaker = state.get("next_speaker")
+    
+    if next_speaker == "prosecutor":
+        return "prosecutor_node"
+    elif next_speaker == "defender":
+        return "defender_node"
+    elif next_speaker == "judge":
+        return "judge_node"
+    elif next_speaker == "advance_phase":
+        return "advance_phase_node"
+    elif next_speaker == "end_trial":
+        return "summary_node"
+    else:
+        # Default fallback
+        return "summary_node"
