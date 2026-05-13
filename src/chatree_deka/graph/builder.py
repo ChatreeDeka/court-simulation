@@ -51,16 +51,12 @@ def build_graph(checkpointer=None):
         "validation_node", 
         validation_route,
         {
+            "judge_node": "judge_node",
             "prosecutor_node": "prosecutor_node", 
-            "defender_node": "defender_node",
-            "judge_node": "judge_node"
+            "defender_node": "defender_node"
         }
     )
 
-    # After successful validation, speakers go to judge for moderation
-    builder.add_edge("prosecutor_node", "judge_node")
-    builder.add_edge("defender_node", "judge_node")
-    
     # Judge routes based on context
     builder.add_conditional_edges(
         "judge_node",
