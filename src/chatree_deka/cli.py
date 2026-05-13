@@ -144,18 +144,17 @@ def simulate(
             operator_input = typer.prompt("Enter your statement (or /object, /evidence <text>, /end)")
 
             if operator_input.startswith("/object"):
-                graph_with_mem.update_state(thread_config, {"objection_pending": True})
+                # combine updates into a single write to avoid multiple writes to the
+                # same channel within one superstep (which causes InvalidUpdateError)
+                graph_with_mem.update_state(thread_config, {"objection_pending": True, "pending_statement": None})
                 print("[yellow]Objection logged! The judge will rule next turn.[/yellow]")
-                graph_with_mem.update_state(thread_config, {"pending_statement": None})
             elif operator_input.startswith("/evidence"):
                 new_ev = operator_input.replace("/evidence", "").strip()
                 old_facts = current_state.values.get("case_facts", "")
-                graph_with_mem.update_state(thread_config, {"case_facts": old_facts + "\n" + new_ev})
+                graph_with_mem.update_state(thread_config, {"case_facts": old_facts + "\n" + new_ev, "pending_statement": None})
                 print("[cyan]Evidence updated![/cyan]")
-                graph_with_mem.update_state(thread_config, {"pending_statement": None})
             elif operator_input == "/end":
-                graph_with_mem.update_state(thread_config, {"phase": "verdict"})
-                graph_with_mem.update_state(thread_config, {"pending_statement": None})
+                graph_with_mem.update_state(thread_config, {"phase": "verdict", "pending_statement": None})
             else:
                 graph_with_mem.update_state(thread_config, {"pending_statement": operator_input})
 
