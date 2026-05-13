@@ -40,6 +40,7 @@ class TrialState(TypedDict):
     # Control flow
     objection_pending: bool
     current_speaker:   Literal["judge", "prosecutor", "defender", "evaluator"]
+    next_speaker:      Optional[Literal["prosecutor", "defender", "judge", "advance_phase", "end_trial"]]
 
     # Execution mode
     mode: Literal["run", "train", "coached"]

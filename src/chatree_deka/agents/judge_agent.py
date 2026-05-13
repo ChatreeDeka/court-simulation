@@ -102,6 +102,67 @@ def act(case_facts: str, transcript: list[dict], objection_pending: bool = False
     return base.generate("judge", messages)
 
 
+def determine_next_speaker(case_facts: str, transcript: list[dict], phase: str, objection_pending: bool = False) -> str:
+    """
+    Determine who should speak next based on the current trial context.
+    Returns: "prosecutor", "defender", "judge", "advance_phase", or "end_trial"
+    """
+    # If there's an objection pending, judge needs to rule first
+    if objection_pending:
+        return "judge"
+    
+    # Count recent turns to prevent infinite loops
+    recent_turns = transcript[-6:] if len(transcript) >= 6 else transcript  # Look at last 6 turns
+    
+    prosecutor_recent = sum(1 for turn in recent_turns if turn.get("role") == "prosecutor")
+    defender_recent = sum(1 for turn in recent_turns if turn.get("role") == "defender")
+    judge_recent = sum(1 for turn in recent_turns if turn.get("role") == "judge")
+    
+    # If both sides have spoken recently and judge has ruled, consider advancing phase
+    if prosecutor_recent >= 1 and defender_recent >= 1 and judge_recent >= 1:
+        # Check if the phase should advance based on content
+        last_judge_turn = None
+        for turn in reversed(transcript):
+            if turn.get("role") == "judge":
+                last_judge_turn = turn
+                break
+        
+        if last_judge_turn:
+            content = last_judge_turn.get("content", "").lower()
+            # If judge mentions verdict or final ruling, end trial
+            if any(word in content for word in ["พิพากษา", "คำพิพากษา", "ยุติ", "เสร็จสิ้น"]):
+                return "end_trial"
+            # If judge seems to be concluding the phase, advance
+            elif any(word in content for word in ["ต่อไป", "ดำเนินการ", "เข้าสู่"]):
+                return "advance_phase"
+    
+    # Default routing based on phase and who spoke last
+    last_speaker = transcript[-1].get("role") if transcript else None
+    
+    if phase in ["opening_prosecution", "direct_examination", "closing_prosecution"]:
+        if last_speaker == "prosecutor":
+            return "defender"  # Give defender chance to respond
+        elif last_speaker == "defender":
+            return "judge"  # Judge to moderate or rule
+        else:
+            return "prosecutor"  # Continue with prosecutor
+    
+    elif phase in ["opening_defense", "cross_examination", "closing_defense"]:
+        if last_speaker == "defender":
+            return "prosecutor"  # Give prosecutor chance to respond
+        elif last_speaker == "prosecutor":
+            return "judge"  # Judge to moderate or rule
+        else:
+            return "defender"  # Continue with defender
+    
+    # For verdict phase, judge speaks then ends
+    elif phase == "verdict":
+        return "end_trial"
+    
+    # Default fallback
+    return "judge"
+
+
 def determine_verdict_winner(case_facts: str, transcript: list[dict]) -> str:
     """
     Determine the verdict winner based on Thai legal code, case facts, and transcript.

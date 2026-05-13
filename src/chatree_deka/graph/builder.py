@@ -7,8 +7,9 @@ from chatree_deka.graph.nodes.defender import defender_node
 from chatree_deka.graph.nodes.judge import judge_node
 from chatree_deka.graph.nodes.summary import summary_node
 from chatree_deka.graph.nodes.validation import validation_node
+from chatree_deka.graph.nodes.advance_phase import advance_phase_node
 
-from chatree_deka.graph.edges import validation_route, phase_router_after_val
+from chatree_deka.graph.edges import validation_route, judge_router
 
 
 def should_interrupt(state: TrialState, node_name: str) -> bool:
@@ -34,6 +35,7 @@ def build_graph(checkpointer=None):
     builder.add_node("judge_node", judge_node)
     builder.add_node("summary_node", summary_node)
     builder.add_node("validation_node", validation_node)
+    builder.add_node("advance_phase_node", advance_phase_node)
 
     # 2. Add Edges
     # The starting phase is typically handled by setting up the state and jumping into the loop. 
@@ -44,33 +46,37 @@ def build_graph(checkpointer=None):
     builder.add_edge("prosecutor_node", "validation_node")
     builder.add_edge("defender_node", "validation_node")
     
-    # After validation, we route
-    
-    # Then the phase router connects after successful validation
-    # Actually validation_route goes to 'phase_router_after_val' for a pass
-    # which is a conditional mapping. We can use add_conditional_edges out of a dummy or redirect.
-    # To keep it standard, validation conditional returns the string naming the next node!
+    # After validation, route based on validation result
     builder.add_conditional_edges(
         "validation_node", 
         validation_route,
         {
-            "phase_router_after_val": "phase_router_after_val", 
             "prosecutor_node": "prosecutor_node", 
             "defender_node": "defender_node",
             "judge_node": "judge_node"
         }
     )
 
-    # Note: StateGraph conditional edges require mapping. We need a dummy node for phase routing
-    # OR we can just embed phase routing inside validation_route when valid. 
-    # To follow the separation in edges.py:
-    def phase_routing_edge(state):
-        return phase_router_after_val(state)
-        
-    builder.add_node("phase_router_after_val", lambda state: {}) # No-op node
-    builder.add_conditional_edges("phase_router_after_val", phase_routing_edge)
-
-    builder.add_edge("judge_node", "summary_node")
+    # After successful validation, speakers go to judge for moderation
+    builder.add_edge("prosecutor_node", "judge_node")
+    builder.add_edge("defender_node", "judge_node")
+    
+    # Judge routes based on context
+    builder.add_conditional_edges(
+        "judge_node",
+        judge_router,
+        {
+            "prosecutor_node": "prosecutor_node",
+            "defender_node": "defender_node", 
+            "judge_node": "judge_node",
+            "advance_phase_node": "advance_phase_node",
+            "summary_node": "summary_node"
+        }
+    )
+    
+    # Phase advancement leads back to prosecutor to start new phase
+    builder.add_edge("advance_phase_node", "prosecutor_node")
+    
     builder.add_edge("summary_node", END)
 
     # 3. Interrupts 
