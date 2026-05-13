@@ -7,14 +7,7 @@ def validation_route(state: TrialState) -> str:
     """
     # Validation pass
     if state.get("validation_result") == "pass":
-        # After validation passes, go back to the current speaker for them to continue
-        current_speaker = state.get("current_speaker")
-        if current_speaker == "prosecutor":
-            return "prosecutor_node"
-        elif current_speaker == "defender":
-            return "defender_node"
-        else:
-            return "prosecutor_node"  # Default fallback
+        return "judge_node"
     
     # Validation fail, can retry
     retry_count = state.get("retry_count", 0)
