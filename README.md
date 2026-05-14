@@ -87,4 +87,4 @@ ChatreeDeka integrates MARTI for multi-agent reinforcement learning self-play.
 - **Observability:** Optional LangSmith tracing (config-toggled)
 
 ## Resources & Assets
-Check out our [GitHub Wiki](./wiki) for addtional resources & assets (e.g., Dataset, Extraction Pipeline, Report)
+Check out our [GitHub Wiki](https://github.com/ChatreeDeka/court-simulation/wiki) for addtional resources & assets (e.g., Dataset, Extraction Pipeline, Report)
