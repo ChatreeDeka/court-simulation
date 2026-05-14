@@ -85,3 +85,6 @@ ChatreeDeka integrates MARTI for multi-agent reinforcement learning self-play.
 - **RAG:** ChromaDB vector store chunked by Thai civil code section (`มาตรา`)
 - **Verdict Determination:** Judge agent analyzes case facts, legal code, and transcript to determine winner and confidence
 - **Observability:** Optional LangSmith tracing (config-toggled)
+
+## Resources & Assets
+Check out our [GitHub Wiki](./wiki) for addtional resources & assets (e.g., Dataset, Extraction Pipeline, Report)
